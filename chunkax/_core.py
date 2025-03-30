@@ -75,8 +75,8 @@ def chunk(fun: Callable,
 
     @wraps(fun)
     def wrapper(*args, **kwargs):
-        if not isinstance(in_axes[0], tuple):
-            # single tuple, extend to number of arguments
+        if not any(isinstance(e, tuple) for e in in_axes):
+            # single tuple (e.g., (0, 1)), repeat to number of arguments
             in_axes_inner = (in_axes,) * len(args)
         elif len(in_axes) != len(args):
             raise ValueError("in_axes must be a tuple of dimension indices or a tuple "
