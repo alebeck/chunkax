@@ -14,6 +14,10 @@ def add(a, b):
     return a + b
 
 
+def check_size(x):
+    return jnp.ones_like(x) * x.shape[0]
+
+
 def test_identity():
     x = jnp.arange(16).reshape(4, 4)
     out = chunk(identity, sizes=2, in_axes=(-2, -1), out_axes=(-2, -1))(x)
@@ -65,3 +69,15 @@ def test_jit():
     x = jnp.arange(16).reshape(4, 4)
     out = jax.jit(chunk(identity, sizes=2, in_axes=(-2, -1), out_axes=(-2, -1)))(x)
     np.testing.assert_array_equal(out, x)
+
+
+def test_strategy_equal():
+    x = jnp.arange(10)
+    out = chunk(check_size, sizes=4, in_axes=-1, out_axes=-1, strategy='equal')(x)
+    assert (out == 4).all()
+
+
+def test_strategy_fit():
+    x = jnp.arange(10)
+    out = chunk(check_size, sizes=4, in_axes=-1, out_axes=-1, strategy='fit')(x)
+    assert (out[:8] == 4).all() and (out[8:] == 2).all()

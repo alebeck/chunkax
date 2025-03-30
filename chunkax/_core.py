@@ -6,10 +6,23 @@ import numpy as np
 import jax.numpy as jnp
 
 
+def make_boundaries(patch_idc, chunk_sizes, shapes, strategy: str):
+    if strategy == "equal":
+        low = [min(pi * chunk_sizes[i], shapes[i] - chunk_sizes[i]) for i, pi in enumerate(patch_idc)]
+        high = [min(l + chunk_sizes[i], shapes[i]) for i, l in enumerate(low)]
+    elif strategy == "fit":
+        low = [pi * chunk_sizes[i] for i, pi in enumerate(patch_idc)]
+        high = [min(l + chunk_sizes[i], shapes[i]) for i, l in enumerate(low)]
+    else:
+        raise ValueError(f"Chunking strategy {strategy} not understood.")
+    return low, high
+
+
 def chunk(fun: Callable,
           sizes: int | tuple,
           in_axes: int | tuple | Sequence[tuple] = (-1,),
           out_axes: None | int | tuple = None,
+          strategy: str = 'equal'
           ) -> Callable:
     """
     Returns a new function that applies `fun` to sliced (chunked) segments of the
@@ -32,6 +45,8 @@ def chunk(fun: Callable,
     out_axes : None or int or tuple, optional
         The dimension indices along which the output chunks are placed. If `None`,
         reuses the value for `in_axes` for the first argument. Defaults to `None`.
+    strategy : str, optional
+        The chunking strategy to use. Can be 'equal' or 'fit'. Defaults to 'equal'.
 
     Returns
     -------
@@ -41,9 +56,6 @@ def chunk(fun: Callable,
 
     Notes
     -----
-    - By default, the last chunk in a dimension will also be sized as in `sizes`, which
-      creates overlaps if the array’s shape is not a multiple of `sizes`. Adjust logic
-      if smaller final chunks or different stitching behavior is desired.
     - Currently the transformation only works on functions whose output has the same size
       as the input along specified `in_axes` and `out_axes`, e.g. this is fine:
         (B, H, W, 3) -> (B, 10, H, W) with in_axes=(-3, -2) and out_axes=(-2, -1)
@@ -104,15 +116,14 @@ def chunk(fun: Callable,
         out = None
 
         for patch_idc in np.ndindex(*num_patches):
-            mins = [min(pi * sizes_inner[i], shapes[i] - sizes_inner[i]) for i, pi in enumerate(patch_idc)]
-            maxs = [min(min_ + sizes_inner[i], shapes[i]) for i, min_ in enumerate(mins)]
+            low, high = make_boundaries(patch_idc, sizes_inner, shapes, strategy)
 
             args_ = []
             for arg, axes in zip(args, in_axes_inner):
                 indexes = [slice(None) for _ in range(arg.ndim)]
                 if axes is not None:
-                    for d, min_, max_ in zip(axes, mins, maxs):
-                        indexes[d] = slice(min_, max_)
+                    for d, l, h in zip(axes, low, high):
+                        indexes[d] = slice(l, h)
                 args_.append(arg[tuple(indexes)])
 
             out_ = fun(*args_, **kwargs)
@@ -132,8 +143,8 @@ def chunk(fun: Callable,
                 out = jnp.zeros(out_shape, dtype=out_.dtype)
 
             indexes = [slice(None) for _ in range(out_.ndim)]
-            for d, min_, max_ in zip(out_axes, mins, maxs):
-                indexes[d] = slice(min_, max_)
+            for d, l, h in zip(out_axes, low, high):
+                indexes[d] = slice(l, h)
             out = out.at[tuple(indexes)].set(out_)
 
         return out

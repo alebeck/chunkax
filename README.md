@@ -71,3 +71,25 @@ apply_chunked = chunk(
     out_axes=(-2, -1)
 )
 ```
+
+## Chunking strategies
+
+### `'equal'`
+Default is `'equal'`, this makes all chunks equal size, and therefore the last chunk potentially overlapping the previous one if the axis' size is not divisible by the chunk size of that axis:
+```
+Array indices:   0 1 2 3 4 5 6 7 8 9
+                 ───────────────────
+Chunk 0:        [0 1 2 3]
+Chunk 1:                [4 5 6 7]
+Chunk 2:                    [6 7 8 9]   <- overlaps with chunk 1
+```
+
+### `'fit'`
+Then there's `'fit'`, which will not produce overlaps but will lead to chunks of different sizes, in case an axis' size is not divisible by the chunk size of that axis:
+```
+Array indices:   0 1 2 3 4 5 6 7 8 9
+                 ───────────────────
+Chunk 0:        [0 1 2 3]
+Chunk 1:                [4 5 6 7]
+Chunk 2:                         [8 9]   <- smaller chunk
+```
