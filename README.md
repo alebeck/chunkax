@@ -45,8 +45,8 @@ def softmax(x):
     return exp / jnp.sum(exp, -1, keepdims=True)
 ```
 
-### Differing output chunk dimensions
-If output chunk dimensions differ from input chunk dimensions:
+### Differing output chunk axes
+If output chunk axes differ from input chunk axes:
 ```python
 apply_chunked = chunk(
     fun, 
