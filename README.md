@@ -43,7 +43,7 @@ apply_chunked = chunk(
 )
 ```
 
-If transformed function has multiple arguments:
+If the transformed function has multiple arguments:
 ```python
 apply_chunked = chunk(
     fun, 
@@ -51,8 +51,8 @@ apply_chunked = chunk(
     
     # chunk over first dimension of first argument,
     # don't chunk second argument (similar to static_argnums),
-    # and chunk first dimension of third argument.
-    in_axes=((0,), None, (0,)),
+    # and chunk second dimension of third argument.
+    in_axes=((0,), None, (1,)),
     
     # fun has only one output, so reassemble along first axis
     # (currently chunkax only supports single-output functions)
