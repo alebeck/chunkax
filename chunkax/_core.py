@@ -44,7 +44,8 @@ def chunk(fun: Callable,
         Defaults to `(-1,)`.
     out_axes : None or int or tuple, optional
         The dimension indices along which the output chunks are placed. If `None`,
-        reuses the value for `in_axes` for the first argument. Defaults to `None`.
+        reuses the value for `in_axes` if it's the same for all arguments.
+        Defaults to `None`.
     strategy : str, optional
         The chunking strategy to use. Can be 'equal' or 'fit'. Defaults to 'equal'.
 
@@ -67,7 +68,12 @@ def chunk(fun: Callable,
         in_axes = tuple(in_axes)
 
     if out_axes is None:
-        out_axes = in_axes[0]
+        axes = {a for a in in_axes if a is not None}
+        if len(axes) == 1:
+            out_axes = axes.pop()
+        else:
+            raise ValueError("out_axes can only be None if non-None entries of in_axes "
+                             f"are all equal, but got {axes}.")
     elif isinstance(out_axes, int):
         out_axes = (out_axes,)
     else:
