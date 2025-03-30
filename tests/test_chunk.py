@@ -1,4 +1,5 @@
 import numpy as np
+import jax
 import jax.numpy as jnp
 import pytest
 
@@ -58,3 +59,9 @@ def test_wrong_sizes():
     x = jnp.arange(16)
     with pytest.raises(ValueError, match="Input chunk size has to be equal"):
         _ = chunk(shrink, sizes=4, in_axes=0, out_axes=0)(x)
+
+
+def test_jit():
+    x = jnp.arange(16).reshape(4, 4)
+    out = jax.jit(chunk(identity, sizes=2, in_axes=(-2, -1), out_axes=(-2, -1)))(x)
+    np.testing.assert_array_equal(out, x)

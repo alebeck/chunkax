@@ -9,7 +9,7 @@ import jax.numpy as jnp
 def chunk(fun: Callable,
           sizes: int | tuple,
           in_axes: int | tuple | Sequence[tuple] = (-1,),
-          out_axes: int | tuple = (-1,),
+          out_axes: None | int | tuple = None,
           ) -> Callable:
     """
     Returns a new function that applies `fun` to sliced (chunked) segments of the
@@ -29,9 +29,9 @@ def chunk(fun: Callable,
         provided, it applies to every input array; otherwise, it should match the
         number of input arrays. `None` entries indicate no chunking for that dimension.
         Defaults to `(-1,)`.
-    out_axes : int or tuple, optional
-        The dimension indices along which the output chunks are placed. Defaults
-        to `(-1,)`.
+    out_axes : None or int or tuple, optional
+        The dimension indices along which the output chunks are placed. If `None`,
+        reuses the value for `in_axes` for the first argument. Defaults to `None`.
 
     Returns
     -------
@@ -49,32 +49,35 @@ def chunk(fun: Callable,
         (B, H, W, 3) -> (B, 10, H, W) with in_axes=(-3, -2) and out_axes=(-2, -1)
     """
 
-    if isinstance(in_axes, list):
-        in_axes = tuple(in_axes)
-    elif isinstance(in_axes, int):
+    if isinstance(in_axes, int):
         in_axes = (in_axes,)
-    if isinstance(out_axes, list):
-        out_axes = tuple(out_axes)
+    else:
+        in_axes = tuple(in_axes)
+
+    if out_axes is None:
+        out_axes = in_axes[0]
     elif isinstance(out_axes, int):
         out_axes = (out_axes,)
+    else:
+        out_axes = tuple(out_axes)
 
     @wraps(fun)
     def wrapper(*args, **kwargs):
-        nonlocal in_axes, sizes
-
         if not isinstance(in_axes[0], tuple):
             # single tuple, extend to number of arguments
-            in_axes = (in_axes,) * len(args)
+            in_axes_inner = (in_axes,) * len(args)
         elif len(in_axes) != len(args):
             raise ValueError("in_axes must be a tuple of dimension indices or a tuple "
                              "of such tuples corresponding to the positional arguments "
                              f"passed to the function, but got {len(in_axes)=}, {len(args)=}")
+        else:
+            in_axes_inner = in_axes
 
-        if len({len(t) for t in in_axes if t is not None}) != 1:
+        if len({len(t) for t in in_axes_inner if t is not None}) != 1:
             raise ValueError("All in_axes entries must have the same length.")
 
         shapes, i_arg = None, 0
-        for i_arg_, axes in enumerate(in_axes):
+        for i_arg_, axes in enumerate(in_axes_inner):
             if axes is None:
                 continue
             shapes_ = tuple(np.array(args[i_arg_].shape)[list(axes)].tolist())
@@ -89,23 +92,23 @@ def chunk(fun: Callable,
             raise ValueError("Not all in_axes elements can be None.")
 
         if isinstance(sizes, int):
-            sizes = (sizes,) * len(shapes)
+            sizes_inner = (sizes,) * len(shapes)
         else:
-            sizes = tuple(sizes)
-            if len(sizes) != len(shapes):
+            sizes_inner = tuple(sizes)
+            if len(sizes_inner) != len(shapes):
                 raise ValueError("Sizes must match the number of chunked dimensions.")
 
-        sizes = tuple(min(*s) for s in zip(sizes, shapes))
+        sizes_inner = tuple(min(*s) for s in zip(sizes_inner, shapes))
 
-        num_patches = [math.ceil(sh / ps) for sh, ps in zip(shapes, sizes)]
+        num_patches = [math.ceil(sh / ps) for sh, ps in zip(shapes, sizes_inner)]
         out = None
 
         for patch_idc in np.ndindex(*num_patches):
-            mins = [min(pi * sizes[i], shapes[i] - sizes[i]) for i, pi in enumerate(patch_idc)]
-            maxs = [min(min_ + sizes[i], shapes[i]) for i, min_ in enumerate(mins)]
+            mins = [min(pi * sizes_inner[i], shapes[i] - sizes_inner[i]) for i, pi in enumerate(patch_idc)]
+            maxs = [min(min_ + sizes_inner[i], shapes[i]) for i, min_ in enumerate(mins)]
 
             args_ = []
-            for arg, axes in zip(args, in_axes):
+            for arg, axes in zip(args, in_axes_inner):
                 indexes = [slice(None) for _ in range(arg.ndim)]
                 if axes is not None:
                     for d, min_, max_ in zip(axes, mins, maxs):
@@ -120,13 +123,13 @@ def chunk(fun: Callable,
                     raise ValueError(f"Cannot index output of shape {out_.shape} "
                                      f"with {out_axes=}")
                 out_shape = list(out_.shape)
-                for d, size, shape in zip(out_axes, sizes, shapes):
+                for d, size, shape in zip(out_axes, sizes_inner, shapes):
                     if out_shape[d] != size:
                         raise ValueError("Input chunk size has to be equal to output"
                                          f" chunk size, but got {size} != {out_shape[d]}"
                                          f" in axis {d}. This may be lifted in the future.")
                     out_shape[d] = shape
-                out = jnp.zeros(out_shape, dtype=out_.dtype, device=out_.device)
+                out = jnp.zeros(out_shape, dtype=out_.dtype)
 
             indexes = [slice(None) for _ in range(out_.ndim)]
             for d, min_, max_ in zip(out_axes, mins, maxs):
