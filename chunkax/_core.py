@@ -120,11 +120,13 @@ def chunk(fun: Callable,
 
             args_ = []
             for arg, axes in zip(args, in_axes_inner):
-                indexes = [slice(None) for _ in range(arg.ndim)]
                 if axes is not None:
+                    indexes = [slice(None) for _ in range(arg.ndim)]
                     for d, l, h in zip(axes, low, high):
                         indexes[d] = slice(l, h)
-                args_.append(arg[tuple(indexes)])
+                    args_.append(arg[tuple(indexes)])
+                else:
+                    args_.append(arg)
 
             out_ = fun(*args_, **kwargs)
 
