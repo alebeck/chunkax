@@ -36,6 +36,7 @@ pytest
 
 ## More examples
 
+### As decorator
 Of course it works as a decorator (the following function applies a channel-wise softmax on a grid of logits, in chunks):
 ```python
 @partial(chunk, (512, 512), in_axes=(-2, -1))
@@ -44,6 +45,7 @@ def softmax(x):
     return exp / jnp.sum(exp, -1, keepdims=True)
 ```
 
+### Differing output chunk dimensions
 If output chunk dimensions differ from input chunk dimensions:
 ```python
 apply_chunked = chunk(
@@ -54,6 +56,7 @@ apply_chunked = chunk(
 )
 ```
 
+### Multiple arguments
 If the transformed function has multiple arguments:
 ```python
 apply_chunked = chunk(
