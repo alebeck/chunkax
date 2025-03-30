@@ -1,6 +1,6 @@
 # Chunkax
 
-A JAX function transformation for applying functions to arbitrary-dimensional chunks of arrays. Fully compatible with `jit`, `vmap`, etc.
+A JAX functional transform for applying functions to arbitrary-dimensional chunks of arrays. Fully compatible with `jit`, `vmap`, etc.
 
 ```python
 from chunkax import chunk
@@ -18,6 +18,9 @@ out = apply_chunked(jnp.ones((B, H, W)))
 assert out.shape == (B, H, W)
 ```
 
+## Why?
+Often it is desirable to apply a function in a chunked fashion, to [trade off space with time](https://en.wikipedia.org/wiki/Space–time_tradeoff).
+
 ## Install
 
 ```bash
@@ -32,6 +35,14 @@ pytest
 ```
 
 ## More examples
+
+Of course it works as a decorator (the following function applies a channel-wise softmax on a grid of logits, in chunks):
+```python
+@partial(chunk, (512, 512), in_axes=(-2, -1))
+def softmax(x):
+    exp = jnp.exp(x - jnp.max(x, -1, keepdims=True))
+    return exp / jnp.sum(exp, -1, keepdims=True)
+```
 
 If output chunk dimensions differ from input chunk dimensions:
 ```python
