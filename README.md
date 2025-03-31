@@ -1,6 +1,6 @@
 # Chunkax
 
-A JAX functional transform for applying functions to arbitrary-dimensional chunks of arrays. Fully compatible with `jit`, `vmap`, etc.
+A JAX functional transform for applying functions to arbitrary-dimensional chunks of arrays. Fully compatible with `jit`, `grad`, `vmap`, etc.
 
 ```python
 from chunkax import chunk
