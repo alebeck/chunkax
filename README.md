@@ -45,7 +45,7 @@ Let me know if your project uses `chunkax`, and I'll add you to the list.
 ### As decorator
 Of course it works as a decorator (the following function applies a channel-wise softmax on a grid of logits, in chunks):
 ```python
-@partial(chunk, (512, 512), in_axes=(-2, -1))
+@partial(chunk, (512, 512), in_axes=(-3, -2))
 def softmax(x):
     exp = jnp.exp(x - jnp.max(x, -1, keepdims=True))
     return exp / jnp.sum(exp, -1, keepdims=True)
