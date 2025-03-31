@@ -1,4 +1,4 @@
-# Chunkax
+# `chunkax`
 
 A JAX functional transform for applying functions to arbitrary-dimensional chunks of arrays. Fully compatible with `jit`, `grad`, `vmap`, etc.
 
@@ -33,6 +33,12 @@ pip install git+https://github.com/alebeck/chunkax
 pip install pytest
 pytest
 ```
+
+## Used by
+Let me know if your project uses `chunkax`, and I'll add you to the list.
+* [prs-eth/thera](https://github.com/prs-eth/thera) [![GitHub stars](https://img.shields.io/github/stars/prs-eth/thera.svg?style=social)](https://github.com/prs-eth/thera)
+
+
 
 ## More examples
 
