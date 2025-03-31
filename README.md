@@ -15,7 +15,7 @@ apply_chunked = jit(chunk(
 ))
 
 out = apply_chunked(jnp.ones((B, H, W)))
-assert out.shape == (B, H, W)
+assert out.shape == (B, H, W) and (out == 2).all()
 ```
 
 ## Why?
