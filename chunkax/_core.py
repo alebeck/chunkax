@@ -3,6 +3,7 @@ from typing import Callable, Sequence
 import math
 
 import numpy as np
+import jax
 import jax.numpy as jnp
 
 
@@ -18,11 +19,13 @@ def make_boundaries(patch_idc, chunk_sizes, shapes, strategy: str):
     return low, high
 
 
-def chunk(fun: Callable,
+def chunk(f: Callable,
           sizes: int | tuple,
           in_axes: int | tuple | Sequence[tuple] = (-1,),
           out_axes: None | int | tuple = None,
           strategy: str = 'equal'
+          strategy: str = 'equal',
+          no_jit_under_trace: bool = False,
           ) -> Callable:
     """
     Returns a new function that applies `fun` to sliced (chunked) segments of the
@@ -31,7 +34,7 @@ def chunk(fun: Callable,
 
     Parameters
     ----------
-    fun : Callable
+    f : Callable
         The function to be applied on each chunk. It should accept the same positional
         and keyword arguments as the returned function, but on smaller slices.
     sizes : int or tuple
@@ -48,6 +51,8 @@ def chunk(fun: Callable,
         Defaults to `None`.
     strategy : str, optional
         The chunking strategy to use. Can be 'equal' or 'fit'. Defaults to 'equal'.
+    no_jit_under_trace : bool, optional
+        If `True`, will not jit the inner function when under a trace. Defaults to `False`.
 
     Returns
     -------
@@ -79,7 +84,7 @@ def chunk(fun: Callable,
     else:
         out_axes = tuple(out_axes)
 
-    @wraps(fun)
+    @wraps(f)
     def wrapper(*args, **kwargs):
         if not any(isinstance(e, tuple) for e in in_axes):
             # single tuple (e.g., (0, 1)), repeat to number of arguments
@@ -121,6 +126,11 @@ def chunk(fun: Callable,
         num_patches = [math.ceil(sh / ps) for sh, ps in zip(shapes, sizes_inner)]
         out = None
 
+        f_inner = f
+        # if tracing, we jit inner function once so it's not re-traced in each iteration
+        if not no_jit_under_trace and any(isinstance(a, jax.core.Tracer) for a in args):
+            f_inner = jax.jit(f)
+
         for patch_idc in np.ndindex(*num_patches):
             low, high = make_boundaries(patch_idc, sizes_inner, shapes, strategy)
 
@@ -134,7 +144,7 @@ def chunk(fun: Callable,
                 else:
                     args_.append(arg)
 
-            out_ = fun(*args_, **kwargs)
+            out_ = f_inner(*args_, **kwargs)
 
             if out is None:
                 # initialize output array based on output patch shape
