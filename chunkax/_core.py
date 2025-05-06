@@ -155,8 +155,9 @@ def chunk(f: Callable,
                 for d, size, shape in zip(out_axes, sizes_inner, shapes):
                     if out_shape[d] != size:
                         raise ValueError("Input chunk size has to be equal to output"
-                                         f" chunk size, but got {size} != {out_shape[d]}"
-                                         f" in axis {d}. This may be lifted in the future.")
+                                         f" chunk size along chunked axes, but got {size} !="
+                                         f" {out_shape[d]} in axis {d}. This may be lifted in the"
+                                         f" future.")
                     out_shape[d] = shape
                 out = jnp.zeros(out_shape, dtype=out_.dtype)
 
