@@ -1,4 +1,5 @@
-from functools import wraps
+from functools import partial, wraps
+from itertools import islice
 from typing import Callable, Sequence
 import math
 
@@ -7,24 +8,64 @@ import jax
 import jax.numpy as jnp
 
 
-def make_boundaries(patch_idc, chunk_sizes, shapes, strategy: str):
+def _make_chunk_bounds(patch_idc, chunk_sizes, shapes, strategy: str):
     if strategy == "equal":
-        low = [min(pi * chunk_sizes[i], shapes[i] - chunk_sizes[i]) for i, pi in enumerate(patch_idc)]
-        high = [min(l + chunk_sizes[i], shapes[i]) for i, l in enumerate(low)]
+        low = np.minimum(patch_idc * chunk_sizes, shapes - chunk_sizes)
+        high = np.minimum(low + chunk_sizes, shapes)
     elif strategy == "fit":
-        low = [pi * chunk_sizes[i] for i, pi in enumerate(patch_idc)]
-        high = [min(l + chunk_sizes[i], shapes[i]) for i, l in enumerate(low)]
+        low = patch_idc * chunk_sizes
+        high = np.minimum(low + chunk_sizes, shapes)
     else:
         raise ValueError(f"Chunking strategy {strategy} not understood.")
-    return low, high
+    return low, high - low
+
+
+@partial(jax.vmap, in_axes=(None, 0, None, None))
+def _fetch_chunk(a, start, size, axes):
+    start_full = [0] * a.ndim
+    size_full = list(a.shape)
+    for st, si, ax in zip(start, size, axes):
+        start_full[ax] = st
+        size_full[ax] = si
+    return jax.lax.dynamic_slice(a, start_full, size_full)
+
+
+def _make_out_arr_from_chunk(chunk, out_axes, chunk_sizes, in_shapes):
+    if not all(-chunk.ndim <= i < chunk.ndim for i in out_axes):
+        raise ValueError(f"Cannot index output of shape {chunk.shape} with {out_axes=}")
+    out_shape = list(chunk.shape)
+    for d, chunk_size, in_shape in zip(out_axes, chunk_sizes, in_shapes):
+        if out_shape[d] != chunk_size:
+            raise ValueError("Input chunk size has to be equal to output"
+                             f" chunk size along chunked axes, but got {chunk_size} !="
+                             f" {out_shape[d]} in axis {d}. This may be lifted in the"
+                             f" future.")
+        out_shape[d] = in_shape
+    return jnp.zeros(out_shape, dtype=chunk.dtype)
+
+
+def _batch_chunks(lows, sizes, *, n):
+    """
+    Special iterator that batches together up to `n` subsequent chunk
+    descriptions (lows and sizes), but only if they have the same size.
+    """
+    batch, curr_size = [], None
+    for l, s in zip(lows, sizes):
+        if batch and ((s != curr_size).any() or len(batch) == n):
+            yield np.stack(batch), curr_size
+            batch = []
+        batch.append(l)
+        curr_size = s
+    if batch:
+        yield np.stack(batch), curr_size
 
 
 def chunk(f: Callable,
           sizes: int | tuple,
           in_axes: int | tuple | Sequence[tuple] = (-1,),
           out_axes: None | int | tuple = None,
-          strategy: str = 'equal'
           strategy: str = 'equal',
+          batch_size: int = 1,
           no_jit_under_trace: bool = False,
           ) -> Callable:
     """
@@ -51,6 +92,8 @@ def chunk(f: Callable,
         Defaults to `None`.
     strategy : str, optional
         The chunking strategy to use. Can be 'equal' or 'fit'. Defaults to 'equal'.
+    batch_size : int
+        Specify how many chunks should be processed in parallel at a time, parallelized via `vmap`.
     no_jit_under_trace : bool, optional
         If `True`, will not jit the inner function when under a trace. Defaults to `False`.
 
@@ -99,72 +142,72 @@ def chunk(f: Callable,
         if len({len(t) for t in in_axes_inner if t is not None}) != 1:
             raise ValueError("All in_axes entries must have the same length.")
 
-        shapes, i_arg = None, 0
+        in_shapes, i_arg = None, 0
         for i_arg_, axes in enumerate(in_axes_inner):
             if axes is None:
                 continue
             shapes_ = tuple(np.array(args[i_arg_].shape)[list(axes)].tolist())
-            if shapes is not None and shapes != shapes_:
+            if in_shapes is not None and in_shapes != shapes_:
                 raise ValueError("Corresponding chunked dimensions of multiple input arrays "
-                                 f"must have equal shape, but got {shapes} and {shapes_} "
+                                 f"must have equal shape, but got {in_shapes} and {shapes_} "
                                  f"for arguments {i_arg} and {i_arg_}. This may be lifted "
                                  "in the future.")
-            shapes, i_arg = shapes_, i_arg_
+            in_shapes, i_arg = shapes_, i_arg_
 
-        if shapes is None:
+        if in_shapes is None:
             raise ValueError("Not all in_axes elements can be None.")
+        in_shapes = np.array(in_shapes)
 
         if isinstance(sizes, int):
-            sizes_inner = (sizes,) * len(shapes)
+            chunk_sizes = (sizes,) * len(in_shapes)
         else:
-            sizes_inner = tuple(sizes)
-            if len(sizes_inner) != len(shapes):
+            chunk_sizes = tuple(sizes)
+            if len(chunk_sizes) != len(in_shapes):
                 raise ValueError("Sizes must match the number of chunked dimensions.")
 
-        sizes_inner = tuple(min(*s) for s in zip(sizes_inner, shapes))
+        chunk_sizes = np.array(tuple(min(*s) for s in zip(chunk_sizes, in_shapes)))
 
-        num_patches = [math.ceil(sh / ps) for sh, ps in zip(shapes, sizes_inner)]
+        num_patches = [math.ceil(sh / ps) for sh, ps in zip(in_shapes, chunk_sizes)]
         out = None
 
         f_inner = f
         # if tracing, we jit inner function once so it's not re-traced in each iteration
+        # TODO: provide static argnums to jit and vmap
         if not no_jit_under_trace and any(isinstance(a, jax.core.Tracer) for a in args):
             f_inner = jax.jit(f)
 
-        for patch_idc in np.ndindex(*num_patches):
-            low, high = make_boundaries(patch_idc, sizes_inner, shapes, strategy)
+        if batch_size > 1:
+            f_inner = jax.vmap(f_inner, [None if ax is None else 0 for ax in in_axes_inner])
 
+        chunk_idc = np.stack(np.ndindex(*num_patches))
+        chunk_lows, act_chunk_sizes = _make_chunk_bounds(chunk_idc, chunk_sizes, in_shapes, strategy)
+
+        for lows, chunk_size in _batch_chunks(chunk_lows, act_chunk_sizes, n=batch_size):
+            # 1) assemble *args_ vector containing a batch of patches for each arg/dim,
+            # extracted with vmap(dynamic_slice)
             args_ = []
             for arg, axes in zip(args, in_axes_inner):
                 if axes is not None:
-                    indexes = [slice(None) for _ in range(arg.ndim)]
-                    for d, l, h in zip(axes, low, high):
-                        indexes[d] = slice(l, h)
-                    args_.append(arg[tuple(indexes)])
+                    arg_sliced = _fetch_chunk(arg, lows, chunk_size, axes)
+                    if batch_size == 1:
+                        arg_sliced = arg_sliced[0]
+                    args_.append(arg_sliced)
                 else:
                     args_.append(arg)
 
-            out_ = f_inner(*args_, **kwargs)
+            # 2) apply to inner function vmapped over dynamic args
+            out_batch = f_inner(*args_, **kwargs)
+            if batch_size == 1:
+                out_batch = out_batch[None]
 
             if out is None:
-                # initialize output array based on output patch shape
-                if not all(-out_.ndim <= i < out_.ndim for i in out_axes):
-                    raise ValueError(f"Cannot index output of shape {out_.shape} "
-                                     f"with {out_axes=}")
-                out_shape = list(out_.shape)
-                for d, size, shape in zip(out_axes, sizes_inner, shapes):
-                    if out_shape[d] != size:
-                        raise ValueError("Input chunk size has to be equal to output"
-                                         f" chunk size along chunked axes, but got {size} !="
-                                         f" {out_shape[d]} in axis {d}. This may be lifted in the"
-                                         f" future.")
-                    out_shape[d] = shape
-                out = jnp.zeros(out_shape, dtype=out_.dtype)
+                out = _make_out_arr_from_chunk(out_batch[0], out_axes, chunk_sizes, in_shapes)
 
-            indexes = [slice(None) for _ in range(out_.ndim)]
-            for d, l, h in zip(out_axes, low, high):
-                indexes[d] = slice(l, h)
-            out = out.at[tuple(indexes)].set(out_)
+            # 3) insert all batch chunks into output array sequentially
+            def insert_one(out, args):
+                patch, low = args
+                return jax.lax.dynamic_update_slice(out, patch, low), None
+            out, _ = jax.lax.scan(insert_one, out, (out_batch, lows))
 
         return out
 

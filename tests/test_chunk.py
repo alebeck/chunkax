@@ -81,3 +81,15 @@ def test_strategy_fit():
     x = jnp.arange(10)
     out = chunk(check_size, sizes=4, in_axes=-1, out_axes=-1, strategy='fit')(x)
     assert (out[:8] == 4).all() and (out[8:] == 2).all()
+
+
+def test_identity_batched():
+    x = jnp.arange(16).reshape(4, 4)
+    out = chunk(identity, sizes=2, in_axes=(-2, -1), out_axes=(-2, -1), batch_size=3)(x)
+    np.testing.assert_array_equal(out, x)
+
+
+def test_strategy_fit_batched():
+    x = jnp.arange(10)
+    out = chunk(check_size, sizes=4, in_axes=-1, out_axes=-1, strategy='fit', batch_size=3)(x)
+    assert (out[:8] == 4).all() and (out[8:] == 2).all()
