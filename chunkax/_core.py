@@ -172,9 +172,9 @@ def chunk(f: Callable,
 
         f_inner = f
         # if tracing, we jit inner function once so it's not re-traced in each iteration
-        # TODO: provide static argnums to jit and vmap
-        if not no_jit_under_trace and any(isinstance(a, jax.core.Tracer) for a in args):
-            f_inner = jax.jit(f)
+        is_tracer = [isinstance(a, jax.core.Tracer) for a in args]
+        if not no_jit_under_trace and any(is_tracer):
+            f_inner = jax.jit(f, static_argnums=[i for i, is_t in enumerate(is_tracer) if not is_t])
 
         if batch_size > 1:
             f_inner = jax.vmap(f_inner, [None if ax is None else 0 for ax in in_axes_inner])

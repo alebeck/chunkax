@@ -24,6 +24,17 @@ def test_identity():
     np.testing.assert_array_equal(out, x)
 
 
+def test_identity_with_static():
+    x = jnp.arange(16).reshape(4, 4)
+    out = chunk(
+            lambda x, s: identity(x),
+            sizes=2,
+            in_axes=((-2, -1), None),
+            out_axes=(-2, -1)
+        )(x, 'static!')
+    np.testing.assert_array_equal(out, x)
+
+
 def test_add():
     a = jnp.arange(11)
     b = jnp.arange(11)
@@ -68,6 +79,20 @@ def test_wrong_sizes():
 def test_jit():
     x = jnp.arange(16).reshape(4, 4)
     out = jax.jit(chunk(identity, sizes=2, in_axes=(-2, -1), out_axes=(-2, -1)))(x)
+    np.testing.assert_array_equal(out, x)
+
+
+def test_jit_with_static():
+    x = jnp.arange(16).reshape(4, 4)
+    out = jax.jit(
+        chunk(
+            lambda x, s: identity(x),
+            sizes=2,
+            in_axes=((-2, -1), None),
+            out_axes=(-2, -1)
+        ),
+        static_argnums=(1,),
+    )(x, 'static!')
     np.testing.assert_array_equal(out, x)
 
 
