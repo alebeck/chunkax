@@ -5,6 +5,8 @@ import pytest
 
 from chunkax import chunk
 
+jax.config.update('jax_platform_name', 'cpu')
+
 
 def identity(x):
     return x
@@ -111,6 +113,13 @@ def test_strategy_fit():
 def test_identity_batched():
     x = jnp.arange(16).reshape(4, 4)
     out = chunk(identity, sizes=2, in_axes=(-2, -1), out_axes=(-2, -1), batch_size=3)(x)
+    np.testing.assert_array_equal(out, x)
+
+
+def test_identity_batched_jit():
+    x = jnp.arange(49).reshape(7, 7)
+    out = jax.jit(chunk(identity, sizes=3, in_axes=(-2, -1), out_axes=(-2, -1), strategy='fit',
+                        batch_size=3))(x)
     np.testing.assert_array_equal(out, x)
 
 
