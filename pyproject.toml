@@ -1,6 +1,6 @@
 [project]
 name = "chunkax"
-version = "0.1.0"
+version = "0.2.0"
 description = "A simple JAX transform that applies a function over chunks of arrays and reassembles the result"
 authors = [{ name = "Alexander Becker", email = "alexander.becker@tum.de" }]
 readme = "README.md"
