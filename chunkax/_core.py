@@ -87,20 +87,7 @@ def chunk(f: Callable,
         if len({len(t) for t in in_axes_inner if t is not None}) != 1:
             raise ValueError("All in_axes entries must have the same length.")
 
-        in_shapes, i_arg = None, 0
-        for i_arg_, axes in enumerate(in_axes_inner):
-            if axes is None:
-                continue
-            shapes_ = tuple(np.array(args[i_arg_].shape)[list(axes)].tolist())
-            if in_shapes is not None and in_shapes != shapes_:
-                raise ValueError("Corresponding chunked dimensions of multiple input arrays "
-                                 f"must have equal shape, but got {in_shapes} and {shapes_} "
-                                 f"for arguments {i_arg} and {i_arg_}. This may be lifted "
-                                 "in the future.")
-            in_shapes, i_arg = shapes_, i_arg_
-
-        if in_shapes is None:
-            raise ValueError("Not all in_axes elements can be None.")
+        in_shapes = _in_shapes_from_args(args, in_axes_inner)
 
         if isinstance(sizes, int):
             chunk_sizes = (sizes,) * len(in_shapes)
@@ -109,7 +96,9 @@ def chunk(f: Callable,
             if len(chunk_sizes) != len(in_shapes):
                 raise ValueError("Sizes must match the number of chunked dimensions.")
 
+        # check that chunk sizes are not larger than input shapes
         chunk_sizes = tuple(min(*s) for s in zip(chunk_sizes, in_shapes))
+
         num_patches = [math.ceil(sh / ps) for sh, ps in zip(in_shapes, chunk_sizes)]
 
         is_vmapped = batch_size > 1
@@ -142,6 +131,25 @@ class _Context(NamedTuple):
     in_axes: tuple
     out_axes: tuple
     is_vmapped: bool
+
+
+def _in_shapes_from_args(args, in_axes):
+    in_shapes, i_arg = None, 0
+    for i_arg_, axes in enumerate(in_axes):
+        if axes is None:
+            continue
+        shapes_ = tuple(np.array(args[i_arg_].shape)[list(axes)].tolist())
+        if in_shapes is not None and in_shapes != shapes_:
+            raise ValueError("Corresponding chunked dimensions of multiple input arrays "
+                             f"must have equal shape, but got {in_shapes} and {shapes_} "
+                             f"for arguments {i_arg} and {i_arg_}. This may be lifted "
+                             "in the future.")
+        in_shapes, i_arg = shapes_, i_arg_
+
+    if in_shapes is None:
+        raise ValueError("Not all in_axes elements can be None.")
+
+    return in_shapes
 
 
 def _chunk_coordinates(shape):
