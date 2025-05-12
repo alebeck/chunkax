@@ -1,7 +1,7 @@
 [project]
 name = "chunkax"
 version = "0.2.1"
-description = "A simple JAX transform that applies a function over chunks of arrays and reassembles the result"
+description = "JAX transform for efficiently applying a function over chunks of arrays"
 authors = [{ name = "Alexander Becker", email = "alexander.becker@tum.de" }]
 readme = "README.md"
 requires-python = ">=3.10"
