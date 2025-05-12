@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -23,6 +25,12 @@ def check_size(x):
 def test_identity():
     x = jnp.arange(16).reshape(4, 4)
     out = chunk(identity, sizes=2, in_axes=(-2, -1), out_axes=(-2, -1))(x)
+    np.testing.assert_array_equal(out, x)
+
+
+def test_identity_infer_out():
+    x = jnp.arange(16).reshape(4, 4)
+    out = chunk(identity, sizes=2, in_axes=(-2, -1))(x)
     np.testing.assert_array_equal(out, x)
 
 

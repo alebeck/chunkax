@@ -58,10 +58,14 @@ def chunk(f: Callable,
     if isinstance(in_axes, int):
         in_axes = (in_axes,)
     else:
+        # in case it is a list or other sequence
         in_axes = tuple(in_axes)
 
+    in_axes_short = not any(isinstance(e, tuple) for e in in_axes)
+
     if out_axes is None:
-        axes = {a for a in in_axes if a is not None}
+        axes = (in_axes,) if in_axes_short else in_axes
+        axes = {a for a in axes if a is not None}
         if len(axes) == 1:
             out_axes = axes.pop()
         else:
@@ -74,7 +78,7 @@ def chunk(f: Callable,
 
     @wraps(f)
     def wrapper(*args, **kwargs):
-        if not any(isinstance(e, tuple) for e in in_axes):
+        if in_axes_short:
             # single tuple (e.g., (0, 1)), repeat to number of arguments
             in_axes_inner = (in_axes,) * len(args)
         elif len(in_axes) != len(args):
@@ -169,6 +173,7 @@ def _chunk_bounds(chunk_coords, chunk_sizes, shapes, strategy: str):
     return low, high - low
 
 
+@partial(jax.jit, static_argnums=(2, 3), donate_argnums=0)
 def _fetch_chunk(a, start, size, axes):
     start_full = [0] * a.ndim
     size_full = list(a.shape)
@@ -250,7 +255,13 @@ def _batch_chunks(lows, sizes, *, n):
 def _process_eager(batched_lows_and_sizes, c: _Context):
     out = None
     for lows, size in batched_lows_and_sizes:
-        out = _update_batch(out, lows, size, c)
+        out_batch = _forward_batch(lows, size, c)
+        if out is None:
+            out = _init_out_array(out_batch[0].shape, out_batch[0].dtype, c)
+
+        # insert all batch chunks into output array sequentially, this spares us
+        # of the jax.lax.scan overhead in eager mode.
+        out = _update_batch(out, lows, out_batch)
     return out
 
 
@@ -263,7 +274,8 @@ def _process_traced(batched_lows_and_sizes, c: _Context):
     def process_group(out, batched_lows, size: tuple):
         def update_batch(out, scan_args):
             (lows,) = scan_args
-            return _update_batch(out, lows, size, c), None
+            out_batch = _forward_batch(lows, size, c)
+            return _update_batch(out, lows, out_batch), None
         return jax.lax.scan(update_batch, out, (np.array(batched_lows),))[0]
 
     # initialize output array based on traced output shape of dummy input
@@ -296,16 +308,10 @@ def _forward_batch(lows, size, c: _Context):
     return out_batch
 
 
-def _update_batch(out, lows, size, c: _Context):
-    out_batch = _forward_batch(lows, size, c)
-
-    if out is None:
-        # this only happens in eager mode, infer output shape from the first batch of outputs
-        out = _init_out_array(out_batch[0].shape, out_batch[0].dtype, c)
-
-    # insert all batch chunks into output array sequentially
+@partial(jax.jit, donate_argnums=(0,))
+def _update_batch(out, lows, batches):
     def insert_one(out, args):
         patch, low = args
         return jax.lax.dynamic_update_slice(out, patch, low), None
 
-    return jax.lax.scan(insert_one, out, (out_batch, lows))[0]
+    return jax.lax.scan(insert_one, out, (batches, lows))[0]
